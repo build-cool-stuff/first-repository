@@ -57,6 +57,13 @@
       return;
     }
 
+    // Fix Edge #14: reject very large files to prevent memory issues
+    const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+    if (file.size > MAX_FILE_SIZE) {
+      importStatus = { type: 'error', message: `File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum is 20MB.` };
+      return;
+    }
+
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);

@@ -104,6 +104,29 @@
   function getAvatarFallback(name: string): string {
     return name.charAt(0).toUpperCase() || '?';
   }
+
+  // Fix Edge #7: precompute bookmark map to avoid O(n^2) find() per render
+  function getBookmarkMap(): Map<string, typeof getBookmarks extends () => (infer T)[] ? T : never> {
+    const map = new Map();
+    for (const b of getBookmarks()) {
+      map.set(b.id, b);
+    }
+    return map;
+  }
+
+  // Fix Edge #7/10: pagination instead of rendering all 10k results
+  const PAGE_SIZE = 50;
+  let visibleCount = $state(PAGE_SIZE);
+
+  function loadMore() {
+    visibleCount += PAGE_SIZE;
+  }
+
+  // Reset pagination when search changes
+  $effect(() => {
+    getSearchQuery(); // track dependency
+    visibleCount = PAGE_SIZE;
+  });
 </script>
 
 <div class="space-y-4">
@@ -182,9 +205,12 @@
 
   <!-- Bookmark list -->
   {:else}
+    {@const bookmarkMap = getBookmarkMap()}
+    {@const allResults = getSearchResults()}
+    {@const visibleResults = allResults.slice(0, visibleCount)}
     <div class="space-y-3">
-      {#each getSearchResults() as result (result.id)}
-        {@const bookmark = getBookmarks().find(b => b.id === result.id) ?? result}
+      {#each visibleResults as result (result.id)}
+        {@const bookmark = bookmarkMap.get(String(result.id)) ?? result}
         {@const terms = result.terms ?? []}
         <article class="card hover:border-tw-text-secondary/30 transition-colors duration-200">
           <div class="flex gap-3">
@@ -316,6 +342,15 @@
           </div>
         </article>
       {/each}
+
+      <!-- Load more button for pagination -->
+      {#if visibleCount < allResults.length}
+        <div class="text-center py-4">
+          <button class="btn-outline" onclick={loadMore}>
+            Load more ({allResults.length - visibleCount} remaining)
+          </button>
+        </div>
+      {/if}
     </div>
   {/if}
 </div>

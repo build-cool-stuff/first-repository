@@ -347,7 +347,6 @@ export async function syncFromCloud(): Promise<void> {
  * After this both sides hold identical data.
  */
 export async function fullSync(): Promise<void> {
-  // Fix QA #2: set guard flag immediately in same synchronous tick as check
   if (syncStatus.isSyncing) return;
   syncStatus.isSyncing = true;
   syncStatus.error = null;
@@ -358,7 +357,9 @@ export async function fullSync(): Promise<void> {
     return;
   }
 
-  try {
+  // Fix Edge #12: use Web Lock to prevent multi-tab concurrent syncs
+  const doSync = async () => {
+    try {
     // 1. Pull remote
     const fileId = await findSyncFile();
     if (fileId) {
@@ -393,6 +394,20 @@ export async function fullSync(): Promise<void> {
     throw err;
   } finally {
     syncStatus.isSyncing = false;
+  }
+  };
+
+  // Use Web Lock if available, otherwise fall back to in-memory guard only
+  if (navigator.locks) {
+    await navigator.locks.request('gdrive-sync', { ifAvailable: true }, async (lock) => {
+      if (!lock) {
+        syncStatus.isSyncing = false;
+        return; // another tab holds the lock
+      }
+      await doSync();
+    });
+  } else {
+    await doSync();
   }
 }
 

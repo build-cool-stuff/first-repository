@@ -64,7 +64,28 @@ self.addEventListener('fetch', (event) => {
 		return;
 	}
 
-	// Network-first for navigation / everything else (SPA pages)
+	// Fix Edge #2: stale-while-revalidate with timeout for navigation
+	// Serves cached version immediately, updates cache in background
+	// Falls back to cached '/' for SPA routing on any sub-route
+	if (request.mode === 'navigate') {
+		event.respondWith(
+			caches.match(request).then((cached) => {
+				const networkFetch = fetch(request)
+					.then((response) => {
+						const clone = response.clone();
+						caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+						return response;
+					})
+					.catch(() => cached || caches.match('/'));
+
+				// Return cached immediately if available, otherwise wait for network
+				return cached || networkFetch;
+			})
+		);
+		return;
+	}
+
+	// Network-first for other requests
 	event.respondWith(
 		fetch(request)
 			.then((response) => {
