@@ -110,8 +110,14 @@ export function parseTwitterArchive(jsonString: string): Bookmark[] {
     return [];
   }
 
+  // Handle extension export format: { bookmarks: [...], ... }
   if (!Array.isArray(data)) {
-    return [];
+    const obj = data as Record<string, unknown>;
+    if (obj.bookmarks && Array.isArray(obj.bookmarks)) {
+      data = obj.bookmarks;
+    } else {
+      return [];
+    }
   }
 
   // Detect format: check the first valid element

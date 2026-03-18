@@ -6,6 +6,7 @@
     exportBookmarks,
     clearAllData,
   } from '$lib/stores/app.svelte';
+  import * as sync from '$lib/storage/sync';
 
   let isDragging = $state(false);
   let importStatus = $state<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -13,6 +14,11 @@
   let isImporting = $state(false);
   let showClearConfirm = $state(false);
   let fileInput = $state<HTMLInputElement | null>(null);
+
+  // Google Drive sync state
+  let googleClientId = $state(localStorage.getItem('gdrive_client_id') || '');
+  let isSyncingDrive = $state(false);
+  let driveStatus = $state<string | null>(null);
 
   function handleDragOver(e: DragEvent) {
     e.preventDefault();
@@ -53,13 +59,18 @@
 
     try {
       const text = await file.text();
-      // Quick parse to count entries
       const parsed = JSON.parse(text);
-      if (!Array.isArray(parsed)) {
-        importStatus = { type: 'error', message: 'JSON file must contain an array of bookmarks.' };
+      // Handle both array format and object wrapper { bookmarks: [...] }
+      let entries: unknown[];
+      if (Array.isArray(parsed)) {
+        entries = parsed;
+      } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.bookmarks)) {
+        entries = parsed.bookmarks;
+      } else {
+        importStatus = { type: 'error', message: 'JSON file must contain bookmarks (array or { bookmarks: [...] }).' };
         return;
       }
-      importPreview = { count: parsed.length, jsonString: text };
+      importPreview = { count: entries.length, jsonString: text };
     } catch {
       importStatus = { type: 'error', message: 'Failed to read or parse the JSON file.' };
     }
@@ -107,6 +118,50 @@
     showClearConfirm = false;
     importStatus = { type: 'success', message: 'All data has been cleared.' };
   }
+
+  // Google Drive sync functions
+  function saveClientId() {
+    const id = googleClientId.trim();
+    if (!id) return;
+    localStorage.setItem('gdrive_client_id', id);
+    sync.initGoogleAuth(id);
+    driveStatus = 'Client ID saved.';
+  }
+
+  function handleSignIn() {
+    if (!googleClientId.trim()) {
+      driveStatus = 'Enter a Google Client ID first.';
+      return;
+    }
+    sync.initGoogleAuth(googleClientId.trim());
+    sync.signIn();
+  }
+
+  function handleSignOut() {
+    sync.signOut();
+    driveStatus = 'Signed out.';
+  }
+
+  async function handleDriveSync() {
+    isSyncingDrive = true;
+    driveStatus = 'Syncing...';
+    try {
+      await sync.fullSync();
+      driveStatus = `Synced at ${new Date().toLocaleTimeString()}`;
+    } catch (err: unknown) {
+      driveStatus = err instanceof Error ? err.message : 'Sync failed.';
+    } finally {
+      isSyncingDrive = false;
+    }
+  }
+
+  // Initialize Google Auth if client ID is stored
+  $effect(() => {
+    const stored = localStorage.getItem('gdrive_client_id');
+    if (stored) {
+      sync.initGoogleAuth(stored);
+    }
+  });
 </script>
 
 <div class="space-y-6">
@@ -211,6 +266,56 @@
     >
       Export {getBookmarks().length} Bookmark{getBookmarks().length !== 1 ? 's' : ''} as JSON
     </button>
+  </section>
+
+  <!-- Google Drive Sync -->
+  <section class="card space-y-4">
+    <h2 class="text-lg font-bold text-tw-text flex items-center gap-2">
+      <svg class="w-5 h-5 text-tw-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+      </svg>
+      Google Drive Sync
+    </h2>
+    <p class="text-sm text-tw-text-secondary">
+      Sync bookmarks across devices via your Google Drive. Data is stored in a hidden app folder only this app can access.
+    </p>
+
+    <div class="space-y-3">
+      <div class="flex gap-2">
+        <input
+          type="text"
+          class="input-field text-sm"
+          placeholder="Google OAuth Client ID"
+          bind:value={googleClientId}
+          aria-label="Google OAuth Client ID"
+        />
+        <button class="btn-outline text-sm whitespace-nowrap" onclick={saveClientId}>
+          Save
+        </button>
+      </div>
+
+      {#if sync.isSignedIn()}
+        <div class="flex items-center gap-3">
+          <span class="text-sm text-green-400">Connected to Google Drive</span>
+          <button class="btn-outline text-sm" onclick={handleSignOut}>Sign Out</button>
+        </div>
+        <button
+          class="btn-primary"
+          onclick={handleDriveSync}
+          disabled={isSyncingDrive}
+        >
+          {isSyncingDrive ? 'Syncing...' : 'Sync Now'}
+        </button>
+      {:else}
+        <button class="btn-primary" onclick={handleSignIn} disabled={!googleClientId.trim()}>
+          Sign in with Google
+        </button>
+      {/if}
+
+      {#if driveStatus}
+        <div class="text-sm text-tw-text-secondary">{driveStatus}</div>
+      {/if}
+    </div>
   </section>
 
   <!-- Data management -->

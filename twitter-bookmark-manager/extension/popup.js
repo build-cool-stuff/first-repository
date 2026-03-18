@@ -185,3 +185,9 @@ exportBtn.addEventListener('click', () => {
 // ========== Initialize ==========
 checkAuth();
 fetchStatus();
+
+// Set app link URL from storage (configurable, defaults to localhost for dev)
+const appLinkEl = document.getElementById('app-link');
+chrome.storage.local.get(['appUrl'], (result) => {
+  appLinkEl.href = result.appUrl || 'http://localhost:5173';
+});
