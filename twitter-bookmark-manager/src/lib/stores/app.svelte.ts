@@ -88,12 +88,13 @@ export async function renameTag(oldName: string, newName: string): Promise<void>
 }
 
 export async function deleteTag(tag: string): Promise<void> {
-  // Remove tag from all bookmarks in storage
-  const affectedBookmarks = bookmarks.filter((b) => b.tags.includes(tag));
-  for (const b of affectedBookmarks) {
-    await storage.removeTagFromBookmark(b.id, tag);
+  // Batch update: build updated bookmarks and save in one transaction
+  const updatedBookmarks = bookmarks
+    .filter((b) => b.tags.includes(tag))
+    .map((b) => ({ ...b, tags: b.tags.filter((t) => t !== tag), lastModified: new Date().toISOString() }));
+  if (updatedBookmarks.length > 0) {
+    await storage.saveBookmarks(updatedBookmarks);
   }
-  // Remove from tags list in storage
   const updatedTags = tags.filter((t) => t !== tag);
   await storage.saveTags(updatedTags);
 
@@ -112,20 +113,21 @@ export async function importBookmarks(jsonString: string): Promise<number> {
   const parsed = parseTwitterArchive(jsonString);
   if (parsed.length === 0) return 0;
 
-  await storage.saveBookmarks(parsed);
-
-  // Collect any tags from imported bookmarks
-  const importedTags = new Set<string>();
+  // Collect tags from imported bookmarks
+  const importedTags: string[] = [];
   for (const b of parsed) {
     for (const t of b.tags) {
-      importedTags.add(t);
+      if (!importedTags.includes(t)) importedTags.push(t);
     }
   }
-  if (importedTags.size > 0) {
-    const currentTags = await storage.getAllTags();
-    const merged = [...new Set([...currentTags, ...importedTags])];
-    await storage.saveTags(merged);
-  }
+
+  // Use importAll for smart merge (newer lastModified wins, tags union)
+  await storage.importAll({
+    bookmarks: parsed,
+    tags: importedTags,
+    lastSyncedAt: '',
+    version: 1,
+  });
 
   await loadBookmarks();
   return parsed.length;

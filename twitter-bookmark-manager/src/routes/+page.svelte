@@ -18,17 +18,27 @@
   let newTagInput = $state('');
 
   // Read tag filter from URL query params
-  let tagFilter = $state('');
+  let lastTagParam = $state('');
   $effect(() => {
     const unsub = page.subscribe((p) => {
-      const t = p.url.searchParams.get('tag');
-      if (t) {
-        tagFilter = t;
-        inputValue = `tag:${t.includes(' ') ? `"${t}"` : t}`;
-        performSearch(inputValue);
+      const t = p.url.searchParams.get('tag') ?? '';
+      // Only react when the tag param actually changes
+      if (t !== lastTagParam) {
+        lastTagParam = t;
+        if (t) {
+          inputValue = `tag:${t.includes(' ') ? `"${t}"` : t}`;
+          performSearch(inputValue);
+        }
       }
     });
     return unsub;
+  });
+
+  // Fix: clean up debounce timer on unmount
+  $effect(() => {
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
   });
 
   function handleSearchInput(e: Event) {
@@ -110,6 +120,7 @@
       placeholder="Search bookmarks... (use tag:name to filter by tag)"
       value={inputValue}
       oninput={handleSearchInput}
+      aria-label="Search bookmarks"
     />
     {#if inputValue}
       <button
@@ -289,6 +300,7 @@
                       placeholder="New tag name..."
                       bind:value={newTagInput}
                       onkeydown={(e) => handleNewTagKeydown(e, String(bookmark.id))}
+                      aria-label="New tag name"
                     />
                     <button
                       class="btn-primary text-sm py-1.5 px-3 whitespace-nowrap"
