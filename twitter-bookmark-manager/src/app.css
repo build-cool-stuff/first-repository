@@ -1,3 +1,73 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-tw-bg text-tw-text antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #15202b;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #38444d;
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #8b98a5;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-tw-accent hover:bg-tw-accent-hover text-white font-bold py-2 px-4 rounded-full transition-colors duration-200;
+  }
+
+  .btn-danger {
+    @apply bg-tw-danger hover:bg-tw-danger-hover text-white font-bold py-2 px-4 rounded-full transition-colors duration-200;
+  }
+
+  .btn-outline {
+    @apply border border-tw-border text-tw-text hover:bg-tw-surface py-2 px-4 rounded-full transition-colors duration-200;
+  }
+
+  .card {
+    @apply bg-tw-surface border border-tw-border rounded-xl p-4;
+  }
+
+  .input-field {
+    @apply bg-tw-bg border border-tw-border rounded-full px-4 py-2 text-tw-text placeholder-tw-text-secondary focus:outline-none focus:border-tw-accent focus:ring-1 focus:ring-tw-accent transition-colors duration-200 w-full;
+  }
+
+  .tag-pill {
+    @apply inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-tw-accent/20 text-tw-accent;
+  }
+
+  .nav-link {
+    @apply flex items-center gap-2 px-4 py-3 text-tw-text-secondary hover:text-tw-text hover:bg-white/5 rounded-full transition-colors duration-200;
+  }
+
+  .nav-link-active {
+    @apply text-tw-text font-bold;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Highlight marks from search */
+mark {
+  background-color: #1d9bf0;
+  color: white;
+  padding: 0 2px;
+  border-radius: 2px;
+}
