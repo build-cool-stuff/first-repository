@@ -54,6 +54,24 @@ export class SearchEngine {
   search(query: string, bookmarks: Bookmark[]): SearchResult[] {
     const { text, tags } = this.parseQuery(query);
 
+    // Fix Bug 5: empty search returns all bookmarks sorted by date
+    if (text.trim().length === 0 && tags.length === 0) {
+      return [...bookmarks]
+        .sort(
+          (a, b) =>
+            new Date(b.bookmarkedAt).getTime() -
+            new Date(a.bookmarkedAt).getTime()
+        )
+        .map((b) => ({
+          ...b,
+          id: b.id,
+          score: 1,
+          terms: [],
+          queryTerms: [],
+          match: {},
+        })) as unknown as SearchResult[];
+    }
+
     let filtered = bookmarks;
 
     if (tags.length > 0) {
@@ -67,7 +85,8 @@ export class SearchEngine {
 
     if (text.trim().length === 0) {
       // Tag-only query: return all matching bookmarks sorted by bookmarkedAt desc
-      return filtered
+      // Fix Bug 6: spread to avoid mutating caller's array
+      return [...filtered]
         .sort(
           (a, b) =>
             new Date(b.bookmarkedAt).getTime() -
@@ -83,43 +102,15 @@ export class SearchEngine {
         })) as unknown as SearchResult[];
     }
 
-    // If we have tag filters, we need to search only within filtered bookmarks
+    // Fix Bug 2: instead of building a temp index, search the main index
+    // and then filter results to only include bookmarks that passed tag filter
     if (tags.length > 0) {
-      // Build a temporary index with only the filtered bookmarks
-      const tempSearch = new MiniSearch({
-        fields: ['text', 'authorName', 'authorHandle', 'joinedTags'],
-        storeFields: [
-          'id',
-          'text',
-          'authorName',
-          'authorHandle',
-          'authorAvatar',
-          'createdAt',
-          'bookmarkedAt',
-          'mediaUrls',
-          'tags',
-          'url',
-          'isRemoved',
-          'lastModified',
-        ],
-        searchOptions: {
-          boost: { joinedTags: 3, text: 2, authorName: 1.5, authorHandle: 1 },
-          fuzzy: 0.2,
-          prefix: true,
-        },
-      });
-
-      const docs = filtered.map((b) => ({
-        ...b,
-        joinedTags: b.tags.join(' '),
-      }));
-
-      if (docs.length > 0) {
-        tempSearch.addAll(docs);
-        return tempSearch.search(text);
+      if (this.miniSearch.documentCount === 0) {
+        return [];
       }
-
-      return [];
+      const filteredIds = new Set(filtered.map((b) => b.id));
+      const results = this.miniSearch.search(text);
+      return results.filter((r) => filteredIds.has(String(r.id)));
     }
 
     // No tag filters, search the full index
@@ -130,11 +121,17 @@ export class SearchEngine {
     return this.miniSearch.search(text);
   }
 
+  // Fix Bug 3: handle duplicate IDs by discarding first
   addBookmark(bookmark: Bookmark): void {
     const doc = {
       ...bookmark,
       joinedTags: bookmark.tags.join(' '),
     };
+    try {
+      this.miniSearch.discard(bookmark.id);
+    } catch {
+      // Not in index yet, that's fine
+    }
     this.miniSearch.add(doc);
   }
 

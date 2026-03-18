@@ -120,7 +120,8 @@ export function parseTwitterArchive(jsonString: string): Bookmark[] {
   // Check if it's our own Bookmark format
   const first = data[0];
   if (isBookmark(first)) {
-    return parseBookmarkExport(jsonString);
+    // Fix Bug 15: reuse already-parsed data instead of double-parsing
+    return deduplicateById(parseBookmarkArray(data));
   }
 
   // Otherwise treat as Twitter archive format
@@ -132,21 +133,19 @@ export function parseTwitterArchive(jsonString: string): Bookmark[] {
     }
   }
 
-  return bookmarks;
+  // Fix Bug 18: deduplicate by ID
+  return deduplicateById(bookmarks);
 }
 
-export function parseBookmarkExport(jsonString: string): Bookmark[] {
-  let data: unknown;
-  try {
-    data = JSON.parse(jsonString);
-  } catch {
-    return [];
+function deduplicateById(bookmarks: Bookmark[]): Bookmark[] {
+  const seen = new Map<string, Bookmark>();
+  for (const b of bookmarks) {
+    seen.set(b.id, b);
   }
+  return [...seen.values()];
+}
 
-  if (!Array.isArray(data)) {
-    return [];
-  }
-
+function parseBookmarkArray(data: unknown[]): Bookmark[] {
   const bookmarks: Bookmark[] = [];
   for (const entry of data) {
     if (isBookmark(entry)) {
@@ -167,8 +166,22 @@ export function parseBookmarkExport(jsonString: string): Bookmark[] {
       });
     }
   }
-
   return bookmarks;
+}
+
+export function parseBookmarkExport(jsonString: string): Bookmark[] {
+  let data: unknown;
+  try {
+    data = JSON.parse(jsonString);
+  } catch {
+    return [];
+  }
+
+  if (!Array.isArray(data)) {
+    return [];
+  }
+
+  return deduplicateById(parseBookmarkArray(data));
 }
 
 export function exportToJson(bookmarks: Bookmark[]): string {

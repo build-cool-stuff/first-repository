@@ -16,16 +16,19 @@ export function highlightMatches(text: string, terms: string[]): string {
     return escapeHtml(text);
   }
 
-  const escaped = escapeHtml(text);
-
-  // Build a single regex matching any of the terms (case-insensitive)
+  // Fix Bug 8: escape terms for HTML entities before matching against escaped text
   const validTerms = terms
     .filter((t) => t.length > 0)
-    .map(escapeRegExp);
+    .map((t) => escapeRegExp(escapeHtml(t)));
 
   if (validTerms.length === 0) {
-    return escaped;
+    return escapeHtml(text);
   }
+
+  const escaped = escapeHtml(text);
+
+  // Fix Bug 12: sort terms by length descending so longer matches take priority
+  validTerms.sort((a, b) => b.length - a.length);
 
   const pattern = new RegExp(`(${validTerms.join('|')})`, 'gi');
 
