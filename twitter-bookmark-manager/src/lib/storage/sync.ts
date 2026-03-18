@@ -55,12 +55,17 @@ export function signIn(): void {
 
   const redirectUri = window.location.origin + window.location.pathname;
 
+  // Fix QA #10: generate state param for CSRF protection
+  const oauthState = crypto.randomUUID();
+  sessionStorage.setItem('gdrive_oauth_state', oauthState);
+
   const params = new URLSearchParams({
     client_id: storedClientId,
     redirect_uri: redirectUri,
     response_type: 'token',
     scope: 'https://www.googleapis.com/auth/drive.appdata',
     include_granted_scopes: 'true',
+    state: oauthState,
   });
 
   window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
@@ -73,6 +78,9 @@ export function signOut(): void {
   localStorage.removeItem(LS_TOKEN_KEY);
   localStorage.removeItem(LS_EXPIRY_KEY);
   stopAutoSync();
+  // Fix QA #8: reset sync status on sign-out
+  syncStatus.error = null;
+  syncStatus.lastSyncedAt = null;
 }
 
 /**
@@ -101,6 +109,17 @@ function _parseTokenFromHash(): void {
   if (!hash || !hash.includes('access_token')) return;
 
   const params = new URLSearchParams(hash.substring(1)); // drop leading '#'
+
+  // Fix QA #10: validate state parameter to prevent CSRF
+  const returnedState = params.get('state');
+  const expectedState = sessionStorage.getItem('gdrive_oauth_state');
+  if (!returnedState || returnedState !== expectedState) {
+    // State mismatch — possible CSRF attack, ignore this token
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    return;
+  }
+  sessionStorage.removeItem('gdrive_oauth_state');
+
   const accessToken = params.get('access_token');
   const expiresIn = params.get('expires_in'); // seconds
 
@@ -189,7 +208,28 @@ export async function readSyncFile(fileId: string): Promise<AppState> {
     throw new Error(`Drive download failed (${res.status}): ${text}`);
   }
 
-  return (await res.json()) as AppState;
+  // Fix QA #1: validate parsed JSON structure
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error('Remote sync file contains invalid JSON.');
+  }
+
+  if (
+    typeof data !== 'object' ||
+    data === null ||
+    !Array.isArray((data as Record<string, unknown>).bookmarks)
+  ) {
+    throw new Error('Remote sync file has invalid structure (missing bookmarks array).');
+  }
+
+  const state = data as AppState;
+  // Ensure tags is at least an empty array
+  if (!Array.isArray(state.tags)) {
+    state.tags = [];
+  }
+  return state;
 }
 
 /**
@@ -307,14 +347,16 @@ export async function syncFromCloud(): Promise<void> {
  * After this both sides hold identical data.
  */
 export async function fullSync(): Promise<void> {
-  if (syncStatus.isSyncing) return; // prevent overlapping syncs
+  // Fix QA #2: set guard flag immediately in same synchronous tick as check
+  if (syncStatus.isSyncing) return;
+  syncStatus.isSyncing = true;
+  syncStatus.error = null;
+
   if (!isSignedIn()) {
+    syncStatus.isSyncing = false;
     syncStatus.error = 'Not signed in to Google Drive.';
     return;
   }
-
-  syncStatus.isSyncing = true;
-  syncStatus.error = null;
 
   try {
     // 1. Pull remote
@@ -323,6 +365,12 @@ export async function fullSync(): Promise<void> {
       const remoteState = await readSyncFile(fileId);
       // 2. Merge remote into local
       await local.importAll(remoteState);
+    }
+
+    // Fix QA #3: re-check token before push to handle mid-sync expiry
+    if (!isSignedIn()) {
+      syncStatus.error = 'Token expired during sync. Local data was updated but remote was not. Sign in again to complete sync.';
+      return;
     }
 
     // 3. Export merged local state
@@ -342,7 +390,6 @@ export async function fullSync(): Promise<void> {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     syncStatus.error = message;
-    // Re-throw so callers can also handle
     throw err;
   } finally {
     syncStatus.isSyncing = false;
