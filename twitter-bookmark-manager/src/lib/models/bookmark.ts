@@ -23,14 +23,15 @@ export interface AppState {
 export function createBookmark(
   partial: Partial<Bookmark> & Pick<Bookmark, 'id' | 'text' | 'authorName' | 'authorHandle' | 'url'>
 ): Bookmark {
+  const now = new Date().toISOString();
   return {
     authorAvatar: '',
-    createdAt: new Date().toISOString(),
-    bookmarkedAt: new Date().toISOString(),
+    createdAt: now,
+    bookmarkedAt: now,
     mediaUrls: [],
     tags: [],
     isRemoved: false,
-    lastModified: new Date().toISOString(),
+    lastModified: now,
     ...partial,
   };
 }
