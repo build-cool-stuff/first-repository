@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=320">
+  <title>Bookmark Manager for X</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 320px;
+      min-height: 200px;
+      background: #15202b;
+      color: #e7e9ea;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      padding: 16px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #38444d;
+    }
+
+    .header h1 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #e7e9ea;
+    }
+
+    .header .logo {
+      width: 28px;
+      height: 28px;
+      background: #1d9bf0;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: bold;
+      color: white;
+      flex-shrink: 0;
+    }
+
+    .status-card {
+      background: #1e2d3d;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+
+    .status-card .label {
+      font-size: 12px;
+      color: #8899a6;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+
+    .status-card .value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1d9bf0;
+    }
+
+    .status-card .sub {
+      font-size: 12px;
+      color: #8899a6;
+      margin-top: 4px;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: #38444d;
+      border-radius: 2px;
+      margin-top: 10px;
+      overflow: hidden;
+      display: none;
+    }
+
+    .progress-bar.active {
+      display: block;
+    }
+
+    .progress-bar .fill {
+      height: 100%;
+      background: #1d9bf0;
+      border-radius: 2px;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+
+    .progress-bar.indeterminate .fill {
+      width: 30%;
+      animation: indeterminate 1.5s infinite ease-in-out;
+    }
+
+    @keyframes indeterminate {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(400%); }
+    }
+
+    .status-message {
+      font-size: 12px;
+      color: #8899a6;
+      margin-top: 6px;
+      min-height: 16px;
+    }
+
+    .status-message.error {
+      color: #f4212e;
+    }
+
+    .buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 9999px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: #1d9bf0;
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #1a8cd8;
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: #1d9bf0;
+      border: 1px solid #1d9bf0;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(29, 155, 240, 0.1);
+    }
+
+    .footer {
+      text-align: center;
+      padding-top: 10px;
+      border-top: 1px solid #38444d;
+    }
+
+    .footer a {
+      color: #1d9bf0;
+      text-decoration: none;
+      font-size: 13px;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+
+    .auth-warning {
+      background: rgba(244, 33, 46, 0.1);
+      border: 1px solid rgba(244, 33, 46, 0.3);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 14px;
+      font-size: 12px;
+      color: #f4212e;
+      display: none;
+    }
+
+    .auth-warning.visible {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">B</div>
+    <h1>Bookmark Manager</h1>
+  </div>
+
+  <div id="auth-warning" class="auth-warning">
+    No auth tokens captured yet. Visit <strong>x.com/i/bookmarks</strong> to capture your credentials.
+  </div>
+
+  <div class="status-card">
+    <div class="label">Bookmarks Captured</div>
+    <div class="value" id="bookmark-count">--</div>
+    <div class="sub" id="last-synced">Not synced yet</div>
+    <div class="progress-bar" id="progress-bar">
+      <div class="fill" id="progress-fill"></div>
+    </div>
+    <div class="status-message" id="status-message"></div>
+  </div>
+
+  <div class="buttons">
+    <button class="btn-primary" id="sync-btn">Sync Now</button>
+    <button class="btn-secondary" id="export-btn">Sync to App</button>
+  </div>
+
+  <div class="footer">
+    <a href="http://localhost:3000" target="_blank" id="app-link">Open Bookmark Manager App</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
