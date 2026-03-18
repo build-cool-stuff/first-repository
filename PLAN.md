@@ -5,28 +5,70 @@ A standalone web app (mobile + desktop) for organizing Twitter/X bookmarks with 
 
 ---
 
-## Critical Decision: How to Get Bookmark Data
+## How Bookmark Data Gets Collected (No API Cost)
 
-The Twitter/X API **requires a paid tier ($100/month Basic)** for bookmark access. Free tier is practically unusable. Three options:
+The Twitter/X API requires $100/month for bookmark access. We bypass this entirely
+with a **passive browser extension** that costs nothing.
 
-### Option A: Companion Browser Extension (Recommended)
-- A lightweight Chrome/Firefox extension that **intercepts bookmark data from twitter.com** as you browse (like Twillot does)
-- Extension scrapes bookmark page and pushes data to the web app via shared JSON file
-- **No API cost**, no rate limits, gets full tweet data
-- Extension is thin - just a data collector. All search/tagging happens in the web app
-- Reference: [Twillot](https://github.com/twillot-app/twillot) does exactly this
+### How It Works (Simple Version)
 
-### Option B: Manual Import
-- User exports bookmarks via Twitter's data export (Settings > Your Account > Download Archive)
-- User uploads the JSON/CSV to the web app
-- Zero cost, but stale data - must re-export periodically
+1. You install a small Chrome/Firefox extension
+2. You use Twitter normally — browse your timeline, bookmark tweets, check your bookmarks page
+3. Behind the scenes, Twitter's website is already loading your bookmark data as JSON
+   from its own servers. The extension **listens to those network responses** and quietly
+   saves a copy of each bookmark it sees
+4. Saved bookmarks go into your browser's local storage (IndexedDB) immediately
+5. Every few seconds, changes sync up to a hidden folder in your Google Drive
+6. The web app (on any device) reads from that same Google Drive folder
 
-### Option C: Pay for API Access ($100/month)
-- Direct Twitter API v2 with OAuth 2.0 PKCE
-- GET `/2/users/:id/bookmarks` - 180 requests/15 min, max 800 bookmarks per call
-- Cleanest architecture but expensive for a personal tool
+**You never have to "do" anything** — just use Twitter like normal on desktop, and
+the extension builds your searchable bookmark database in the background.
 
-**Recommendation**: Option A (companion extension) for desktop + Option B (manual import) as fallback for mobile. This gives live-ish data on desktop and a workable mobile story at zero cost.
+### Data Flow Diagram
+
+```
+  You browse x.com normally
+         │
+         ▼
+  Twitter's servers send bookmark JSON to your browser (this happens anyway)
+         │
+         ▼
+  Extension intercepts the response (via webRequest / fetch hook)
+  Extracts: tweet text, author, media, timestamp, tweet ID
+         │
+         ▼
+  Saves to IndexedDB (instant, local)
+         │
+         ▼
+  Debounced sync to Google Drive appDataFolder (every 5-10 seconds)
+         │
+         ▼
+  Web app on ANY device reads from Google Drive
+  (phone, laptop, work computer — anywhere you sign into Google)
+```
+
+### What Triggers Data Collection?
+
+| Action you take on Twitter        | What the extension captures                |
+|-----------------------------------|--------------------------------------------|
+| Open your Bookmarks page          | All visible bookmarks as you scroll        |
+| Bookmark a new tweet (click icon) | That specific tweet immediately             |
+| Tweet appears in your timeline    | Nothing (only captures bookmarked tweets)   |
+| Remove a bookmark                 | Marks it as removed in local DB             |
+
+### What About Mobile?
+
+Browser extensions don't work on mobile browsers. Two fallbacks:
+
+1. **Passive desktop sync**: Bookmark tweets on mobile, then next time you open
+   Twitter on desktop, open your Bookmarks page briefly — the extension catches up
+   and syncs everything to Google Drive. Your phone's web app then sees the new data.
+2. **Manual import**: Drag-and-drop a Twitter data export (JSON) into the web app
+   as a one-time bulk import.
+
+### Reference Implementation
+[Twillot](https://github.com/twillot-app/twillot) is an open-source project that
+does exactly this network interception approach — proven to work.
 
 ---
 
@@ -221,14 +263,15 @@ interface AppState {
 4. Conflict resolution (timestamp-based last-write-wins)
 5. Sync status indicator in UI
 
-### Phase 3: Companion Browser Extension
-1. Manifest V3 Chrome extension (content script on x.com)
-2. Detect bookmarks page, scrape tweet data from DOM
-3. "Save to Bookmark Manager" button injected on each tweet
-4. Push scraped data to web app via:
-   - Shared IndexedDB (same origin via iframe), OR
-   - Google Drive sync (extension also writes to Drive)
-5. Firefox port (WebExtension API is ~95% compatible)
+### Phase 3: Companion Browser Extension (Data Collector)
+1. Manifest V3 Chrome extension (background service worker + content script on x.com)
+2. **Network interception**: hook into fetch/XMLHttpRequest to capture Twitter's
+   internal API responses containing bookmark data (no DOM scraping needed)
+3. Parse captured responses → extract bookmark fields → write to IndexedDB
+4. Detect "bookmark added/removed" actions and capture in real-time
+5. Sync captured bookmarks to Google Drive (reuses Phase 2 sync layer)
+6. Optional: inject subtle "tagged" indicator on tweets you've tagged in the web app
+7. Firefox port (WebExtension API is ~95% compatible)
 
 ### Phase 4: Polish
 1. Dark mode (match Twitter's theme)
@@ -281,7 +324,7 @@ twitter-bookmark-manager/
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Twitter changes DOM structure | Extension breaks | Use data attributes / API network interception instead of DOM selectors |
+| Twitter changes internal API format | Extension breaks | Version-detect response schema, alert user to update extension |
 | Google Drive API rate limits | Sync delays | Debounce writes, batch changes, cache aggressively |
 | 10k bookmarks slow on mobile | Poor UX | Virtual scrolling (svelte-virtual-list), lazy render |
 | Twitter archive format changes | Import breaks | Version-detect archive format, graceful fallback |
