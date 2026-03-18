@@ -13,62 +13,103 @@ with a **passive browser extension** that costs nothing.
 ### How It Works (Simple Version)
 
 1. You install a small Chrome/Firefox extension
-2. You use Twitter normally — browse your timeline, bookmark tweets, check your bookmarks page
-3. Behind the scenes, Twitter's website is already loading your bookmark data as JSON
-   from its own servers. The extension **listens to those network responses** and quietly
-   saves a copy of each bookmark it sees
-4. Saved bookmarks go into your browser's local storage (IndexedDB) immediately
-5. Every few seconds, changes sync up to a hidden folder in your Google Drive
-6. The web app (on any device) reads from that same Google Drive folder
+2. You visit x.com once (any page — home, timeline, anything). The extension silently
+   captures your login tokens from the browser cookies you already have
+3. The extension **calls Twitter's internal GraphQL bookmark API directly** — the same
+   API that Twitter's own website uses. It fetches **100 bookmarks per request** and
+   follows pagination cursors until it has everything
+4. For 5,000 bookmarks: ~50 requests at 300ms apart = **full sync in ~15 seconds**
+5. Saved bookmarks go into your browser's local storage (IndexedDB) immediately
+6. Every few seconds, changes sync up to a hidden folder in your Google Drive
+7. The web app (on any device) reads from that same Google Drive folder
 
-**You never have to "do" anything** — just use Twitter like normal on desktop, and
-the extension builds your searchable bookmark database in the background.
+**You never have to scroll through your bookmarks page.** The extension fetches
+everything directly in the background.
+
+### Initial Sync vs Ongoing Sync
+
+**First time (initial sync)**:
+- Extension captures your auth tokens from any x.com page visit
+- Triggers a full paginated fetch of ALL bookmarks (100 per request, cursor-based)
+- 5,000 bookmarks ≈ 15 seconds. You see a progress bar in the extension popup
+- All data saved locally + synced to Google Drive
+
+**After that (ongoing sync)**:
+- Extension periodically fetches the first 1-2 pages of bookmarks to pick up new ones
+- Also intercepts real-time bookmark/unbookmark actions as you click the bookmark icon
+- New bookmarks sync to Google Drive within seconds
 
 ### Data Flow Diagram
 
 ```
-  You browse x.com normally
+  INITIAL SYNC (one-time, automatic):
+
+  You visit any page on x.com
          │
          ▼
-  Twitter's servers send bookmark JSON to your browser (this happens anyway)
+  Extension captures auth tokens (auth_token cookie, ct0 CSRF token, bearer token)
          │
          ▼
-  Extension intercepts the response (via webRequest / fetch hook)
-  Extracts: tweet text, author, media, timestamp, tweet ID
+  Extension calls Twitter's internal GraphQL API directly:
+  GET https://x.com/i/api/graphql/{queryId}/Bookmarks?variables={count:100,cursor:"..."}
+         │
+         ▼
+  Loops through all pages (cursor-based pagination, 100 per request)
+  5,000 bookmarks = ~50 requests = ~15 seconds
          │
          ▼
   Saves to IndexedDB (instant, local)
          │
          ▼
-  Debounced sync to Google Drive appDataFolder (every 5-10 seconds)
+  Syncs to Google Drive appDataFolder
          │
          ▼
   Web app on ANY device reads from Google Drive
-  (phone, laptop, work computer — anywhere you sign into Google)
+
+
+  ONGOING (automatic, in background):
+
+  You bookmark a tweet ──▶ Extension intercepts the action ──▶ Saves immediately
+         OR
+  Extension periodically checks for new bookmarks (every ~15 min via chrome.alarms)
 ```
 
 ### What Triggers Data Collection?
 
-| Action you take on Twitter        | What the extension captures                |
-|-----------------------------------|--------------------------------------------|
-| Open your Bookmarks page          | All visible bookmarks as you scroll        |
-| Bookmark a new tweet (click icon) | That specific tweet immediately             |
-| Tweet appears in your timeline    | Nothing (only captures bookmarked tweets)   |
-| Remove a bookmark                 | Marks it as removed in local DB             |
+| Event                              | What happens                                          |
+|------------------------------------|-------------------------------------------------------|
+| First install / first x.com visit  | Full sync: fetches ALL bookmarks via GraphQL API      |
+| You bookmark a new tweet           | Extension intercepts the action, saves immediately    |
+| You remove a bookmark              | Extension intercepts, marks as removed in local DB    |
+| Every ~15 minutes (background)     | Extension fetches first 1-2 pages to catch new ones   |
+| You click "Sync Now" in extension  | Full re-sync (same as initial)                        |
 
 ### What About Mobile?
 
 Browser extensions don't work on mobile browsers. Two fallbacks:
 
-1. **Passive desktop sync**: Bookmark tweets on mobile, then next time you open
-   Twitter on desktop, open your Bookmarks page briefly — the extension catches up
-   and syncs everything to Google Drive. Your phone's web app then sees the new data.
+1. **Automatic desktop catch-up**: Bookmark tweets on mobile throughout the day.
+   The extension's ~15-minute background check automatically picks up new bookmarks
+   next time your desktop browser is open with x.com — no manual action needed.
+   Changes sync to Google Drive, then your phone's web app sees them.
 2. **Manual import**: Drag-and-drop a Twitter data export (JSON) into the web app
    as a one-time bulk import.
 
-### Reference Implementation
-[Twillot](https://github.com/twillot-app/twillot) is an open-source project that
-does exactly this network interception approach — proven to work.
+### Technical Details: Twitter's Internal Bookmark API
+
+The extension uses the same API that twitter.com uses internally:
+
+- **Endpoint**: `GET https://x.com/i/api/graphql/{queryId}/Bookmarks`
+- **Auth**: Uses your existing browser cookies (`auth_token`, `ct0`) + bearer token
+- **Pagination**: Cursor-based — response includes a `cursor-bottom-*` entry for next page
+- **Batch size**: 100 bookmarks per request (vs ~20 that the UI loads on scroll)
+- **No paid API needed**: This is Twitter's internal frontend API, not the developer API
+- **Query ID**: Dynamic, captured from browser network traffic (not hardcoded)
+
+Reference implementations:
+- [bookmark-export](https://github.com/sahil-lalani/bookmark-export) — uses this exact GraphQL pagination approach
+- [Twillot](https://github.com/twillot-app/twillot) — full bookmark manager using network interception
+- [twitter-web-exporter](https://github.com/prinsss/twitter-web-exporter) — exports bookmarks via response interception
 
 ---
 
@@ -265,13 +306,17 @@ interface AppState {
 
 ### Phase 3: Companion Browser Extension (Data Collector)
 1. Manifest V3 Chrome extension (background service worker + content script on x.com)
-2. **Network interception**: hook into fetch/XMLHttpRequest to capture Twitter's
-   internal API responses containing bookmark data (no DOM scraping needed)
-3. Parse captured responses → extract bookmark fields → write to IndexedDB
-4. Detect "bookmark added/removed" actions and capture in real-time
-5. Sync captured bookmarks to Google Drive (reuses Phase 2 sync layer)
-6. Optional: inject subtle "tagged" indicator on tweets you've tagged in the web app
-7. Firefox port (WebExtension API is ~95% compatible)
+2. **Auth capture**: intercept `auth_token`, `ct0`, bearer token from any x.com request
+   via `webRequest.onBeforeSendHeaders`
+3. **Initial full sync**: call Twitter's internal GraphQL bookmark API directly with
+   cursor-based pagination (100/request). Progress bar in extension popup
+4. **Real-time capture**: intercept bookmark/unbookmark actions as user clicks
+5. **Background refresh**: `chrome.alarms` every ~15 min to fetch first 1-2 pages
+   for new bookmarks
+6. **"Sync Now" button**: manual trigger for full re-sync
+7. Sync captured bookmarks to Google Drive (reuses Phase 2 sync layer)
+8. Optional: inject subtle "tagged" indicator on tweets you've tagged in the web app
+9. Firefox port (WebExtension API is ~95% compatible)
 
 ### Phase 4: Polish
 1. Dark mode (match Twitter's theme)
